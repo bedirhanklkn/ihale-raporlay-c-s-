@@ -165,11 +165,15 @@ app.post("/api/settings", (req, res) => {
   res.json({ success: true, hasApiKey: Boolean(customApiKey) });
 });
 
-app.listen(PORT, () => {
-  console.log(`İhale Raporlayıcı sunucusu http://localhost:${PORT} üzerinde çalışıyor.`);
-  if (customApiKey) {
-    console.log(`[Durum] Gemini AI entegrasyonu AKTİF.`);
-  } else {
-    console.log(`[Durum] Gemini API anahtarı henüz eklenmedi. Arayüzden veya .env dosyasından ekleyebilirsiniz.`);
-  }
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`İhale Raporlayıcı sunucusu http://localhost:${PORT} üzerinde çalışıyor.`);
+    if (customApiKey) {
+      console.log(`[Durum] Gemini AI entegrasyonu AKTİF.`);
+    } else {
+      console.log(`[Durum] Gemini API anahtarı henüz eklenmedi. Arayüzden veya .env dosyasından ekleyebilirsiniz.`);
+    }
+  });
+}
+
+module.exports = app;
