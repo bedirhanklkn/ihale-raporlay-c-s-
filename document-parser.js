@@ -98,7 +98,7 @@ async function parsePdf(buffer) {
   try {
     const parsePromise = pdfParse(buffer);
     const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("PDF ayrıştırma zaman aşımı (10s)")), 10000)
+      setTimeout(() => reject(new Error("PDF ayrıştırma zaman aşımı (4s)")), 4000)
     );
     const data = await Promise.race([parsePromise, timeoutPromise]);
     const raw = data.text || "";
@@ -128,10 +128,71 @@ async function parseBufferByExt(buffer, filename) {
   return "";
 }
 
+// Score and filter ZIP entries so essential tender files parse instantly
+function getEntryPriority(entryName, size) {
+  const lower = entryName.toLowerCase();
+
+  // Skip binary CAD, media, and raw spreadsheets
+  if (
+    lower.endsWith(".dwg") ||
+    lower.endsWith(".dxf") ||
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    lower.endsWith(".png") ||
+    lower.endsWith(".bmp") ||
+    lower.endsWith(".tif") ||
+    lower.endsWith(".tiff") ||
+    lower.endsWith(".xls") ||
+    lower.endsWith(".xlsx") ||
+    lower.endsWith(".csv") ||
+    lower.endsWith(".exe") ||
+    lower.endsWith(".mp4") ||
+    lower.endsWith(".rar") ||
+    lower.endsWith(".7z")
+  ) {
+    return -1;
+  }
+
+  const isDoc = lower.endsWith(".doc") || lower.endsWith(".docx");
+  const isPdf = lower.endsWith(".pdf");
+  const isTxt = lower.endsWith(".txt") || lower.endsWith(".html") || lower.endsWith(".htm");
+  const isZip = lower.endsWith(".zip");
+
+  if (!isDoc && !isPdf && !isTxt && !isZip) {
+    return -1;
+  }
+
+  const isEssential =
+    lower.includes("idari") ||
+    lower.includes("sartname") ||
+    lower.includes("şartname") ||
+    lower.includes("sozlesme") ||
+    lower.includes("sözleşme") ||
+    lower.includes("teknik") ||
+    lower.includes("ilan") ||
+    lower.includes("zeyil");
+
+  // Skip huge PDFs (> 15MB) that are drawings or photos without "şartname" in their name
+  if (isPdf && size > 15 * 1024 * 1024 && !isEssential) {
+    return -1;
+  }
+
+  if (lower.includes("idari_sartname") || lower.includes("idarisartname") || (lower.includes("idari") && isDoc)) return 100;
+  if (lower.includes("sozlesme") || lower.includes("sozlesmetasarisi")) return 90;
+  if (lower.includes("teknik") || lower.includes("tekniksartname")) return 80;
+  if (lower.includes("ilan") || lower.includes("zeyil")) return 70;
+  if (isEssential) return 60;
+  if (isDoc) return 50; // DOC/DOCX parses in 0.05s
+  if (isTxt) return 40;
+  if (isPdf) return 20; // PDF takes longest
+  if (isZip) return 10;
+  return 0;
+}
+
 // Parse a ZIP file and collect all tender documents inside
 async function parseZipArchive(buffer) {
   const zip = new AdmZip(buffer);
-  const entries = zip.getEntries();
+  const rawEntries = zip.getEntries();
 
   const result = {
     archiveName: "İhale Dokümanı Arşivi",
@@ -143,63 +204,81 @@ async function parseZipArchive(buffer) {
     combinedText: "",
   };
 
-  for (const entry of entries) {
+  // Rank and sort entries so crucial specifications (İdari, Sözleşme, Teknik) parse first
+  const prioritizedEntries = [];
+  for (const entry of rawEntries) {
     if (entry.isDirectory) continue;
+    const priority = getEntryPriority(entry.entryName, entry.header ? entry.header.size : 0);
+    if (priority >= 0) {
+      prioritizedEntries.push({ entry, priority });
+    }
+  }
+
+  prioritizedEntries.sort((a, b) => b.priority - a.priority);
+
+  console.log(`[ZIP Ayrıştırıcı] Toplam ${rawEntries.length} dosya içinden ${prioritizedEntries.length} şartname dokümanı önceliklendirildi.`);
+
+  for (const { entry } of prioritizedEntries) {
     const name = entry.entryName;
     const lowerName = name.toLowerCase();
 
     // Check if it's an inner zip file (sometimes EKAP nests zips)
     if (lowerName.endsWith(".zip")) {
-      const innerZipBuffer = entry.getData();
-      const innerResult = await parseZipArchive(innerZipBuffer);
-      result.files.push(...innerResult.files);
-      if (!result.idariSartname && innerResult.idariSartname) {
-        result.idariSartname = innerResult.idariSartname;
+      try {
+        const innerZipBuffer = entry.getData();
+        const innerResult = await parseZipArchive(innerZipBuffer);
+        result.files.push(...innerResult.files);
+        if (!result.idariSartname && innerResult.idariSartname) result.idariSartname = innerResult.idariSartname;
+        if (!result.sozlesmeTasarisi && innerResult.sozlesmeTasarisi) result.sozlesmeTasarisi = innerResult.sozlesmeTasarisi;
+        if (!result.teknikSartname && innerResult.teknikSartname) result.teknikSartname = innerResult.teknikSartname;
+        result.otherTexts.push(...innerResult.otherTexts);
+      } catch (err) {
+        console.warn(`[ZIP] İç zip ayrıştırma hatası (${name}):`, err.message);
       }
-      if (!result.sozlesmeTasarisi && innerResult.sozlesmeTasarisi) {
-        result.sozlesmeTasarisi = innerResult.sozlesmeTasarisi;
-      }
-      if (!result.teknikSartname && innerResult.teknikSartname) {
-        result.teknikSartname = innerResult.teknikSartname;
-      }
-      result.otherTexts.push(...innerResult.otherTexts);
       continue;
     }
 
-    if (
-      lowerName.endsWith(".doc") ||
-      lowerName.endsWith(".docx") ||
-      lowerName.endsWith(".pdf") ||
-      lowerName.endsWith(".txt")
-    ) {
+    try {
       const fileBuffer = entry.getData();
       const text = await parseBufferByExt(fileBuffer, name);
       const fileInfo = {
         name,
         size: fileBuffer.length,
-        textLength: text.length,
+        textLength: text ? text.length : 0,
       };
       result.files.push(fileInfo);
 
+      if (!text || text.length < 20) continue;
+
       if (
-        lowerName.includes("idari_sartname") ||
-        lowerName.includes("idarisartname") ||
-        lowerName.includes("idari sartname")
+        (lowerName.includes("idari_sartname") || lowerName.includes("idarisartname") || lowerName.includes("idari sartname") || lowerName.includes("idari")) &&
+        !result.idariSartname
       ) {
         result.idariSartname = text;
+        console.log(`[ZIP] İdari Şartname bulundu: ${name} (${text.length} karakter)`);
       } else if (
-        lowerName.includes("sozlesme") ||
-        lowerName.includes("sozlesmetasarisi")
+        (lowerName.includes("sozlesme") || lowerName.includes("sozlesmetasarisi")) &&
+        !result.sozlesmeTasarisi
       ) {
         result.sozlesmeTasarisi = text;
+        console.log(`[ZIP] Sözleşme Tasarısı bulundu: ${name} (${text.length} karakter)`);
       } else if (
-        lowerName.includes("teknik") ||
-        lowerName.includes("tekniksartname")
+        (lowerName.includes("teknik") || lowerName.includes("tekniksartname")) &&
+        !result.teknikSartname
       ) {
         result.teknikSartname = text;
+        console.log(`[ZIP] Teknik Şartname bulundu: ${name} (${text.length} karakter)`);
       } else {
         result.otherTexts.push({ name, text });
       }
+
+      // Fast exit: If we already have the 3 key documents, stop scanning other heavy files!
+      if (result.idariSartname && result.sozlesmeTasarisi && result.teknikSartname) {
+        console.log(`[ZIP Hızlı Tamamlama] İdari Şartname, Sözleşme Tasarısı ve Teknik Şartname başarıyla ayrıştırıldı. Diğer ağır dosyalar atlandı.`);
+        break;
+      }
+    } catch (err) {
+      console.warn(`[ZIP] Dosya ayrıştırma hatası (${name}):`, err.message);
     }
   }
 
@@ -208,7 +287,7 @@ async function parseZipArchive(buffer) {
   if (result.idariSartname) parts.push("=== İDARİ ŞARTNAME ===\n" + result.idariSartname);
   if (result.sozlesmeTasarisi) parts.push("=== SÖZLEŞME TASARISI ===\n" + result.sozlesmeTasarisi);
   if (result.teknikSartname) parts.push("=== TEKNİK ŞARTNAME ===\n" + result.teknikSartname);
-  for (const ot of result.otherTexts) {
+  for (const ot of result.otherTexts.slice(0, 5)) {
     if (ot.text && ot.text.length > 50) {
       parts.push(`=== ${ot.name} ===\n` + ot.text);
     }

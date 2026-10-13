@@ -62,6 +62,12 @@
       <div class="loader-spinner"></div>
       <h3 id="loader-status">İhale Dokümanı Taranıyor...</h3>
       <p id="loader-substatus">İdari şartname maddeleri, teminatlar ve yeterlilik kriterleri ayıklanıyor.</p>
+      <div id="upload-progress-container" class="upload-progress-container hidden" style="width: 100%; max-width: 480px; margin: 18px auto 0;">
+        <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 999px; height: 12px; overflow: hidden; position: relative;">
+          <div id="upload-progress-bar" style="background: linear-gradient(90deg, #2563eb, #10b981); height: 100%; width: 0%; transition: width 0.15s ease-out; border-radius: 999px;"></div>
+        </div>
+        <div id="upload-progress-text" style="font-size: 0.88rem; color: #94a3b8; margin-top: 8px; font-weight: 500; text-align: center;">%0 Yüklendi</div>
+      </div>
     </div>
 
     <!-- Report Section (Initially Hidden) -->

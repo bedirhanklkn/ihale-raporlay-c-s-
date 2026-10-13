@@ -105,37 +105,83 @@ function handleFileSelect(e) {
   }
 }
 
-// Upload file to /api/analyze
-async function uploadFile(file) {
+// Upload file to /api/analyze with real-time progress
+function uploadFile(file) {
   const isZip = file.name.toLowerCase().endsWith(".zip");
   const isPdf = file.name.toLowerCase().endsWith(".pdf");
+  const totalMb = (file.size / 1024 / 1024).toFixed(1);
 
   showLoading(
-    `"${file.name}" analiz ediliyor...`,
+    `"${file.name}" (${totalMb} MB) yükleniyor...`,
     isZip
-      ? "ZIP paketi açılıyor, idari şartname ve sözleşme maddeleri ayıklanıyor..."
+      ? "Dosya sunucuya aktarılıyor, ardından şartname maddeleri hızla ayıklanacak..."
       : isPdf
-      ? "PDF şartname okunuyor ve yapay zeka ile inceleniyor..."
-      : "Şartname dokümanı taranıyor..."
+      ? "PDF şartname aktarılıyor ve yapay zeka ile incelenecek..."
+      : "Şartname dokümanı aktarılıyor..."
   );
+
+  const progressContainer = document.getElementById("upload-progress-container");
+  const progressBar = document.getElementById("upload-progress-bar");
+  const progressText = document.getElementById("upload-progress-text");
+
+  if (progressContainer) {
+    progressContainer.classList.remove("hidden");
+    progressBar.style.width = "0%";
+    progressText.textContent = `%0 Yüklendi (0 MB / ${totalMb} MB)`;
+  }
 
   const formData = new FormData();
   formData.append("file", file);
 
-  try {
-    const res = await fetch("/api/analyze", {
-      method: "POST",
-      body: formData,
-    });
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/analyze", true);
 
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
+  // Real-time upload progress event
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable && progressContainer) {
+      const percent = Math.min(100, Math.round((e.loaded / e.total) * 100));
+      const loadedMb = (e.loaded / 1024 / 1024).toFixed(1);
+      progressBar.style.width = `${percent}%`;
+      progressText.textContent = `%${percent} Yüklendi (${loadedMb} MB / ${totalMb} MB)`;
 
-    renderReport(data.report, file.name);
-  } catch (err) {
-    alert("⚠️ " + err.message);
+      if (percent >= 100) {
+        loaderStatus.textContent = "Şartnameler Ayıklanıyor ve Analiz Ediliyor...";
+        document.getElementById("loader-substatus").textContent =
+          "İdari şartname, sözleşme tasarısı ve teminat maddeleri hızla taranıyor...";
+        progressText.textContent = "Dosya sunucuya aktarıldı. Akıllı analiz yapılıyor...";
+      }
+    }
+  };
+
+  xhr.onload = () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.error) throw new Error(data.error);
+        renderReport(data.report, file.name);
+      } catch (err) {
+        alert("⚠️ " + err.message);
+        resetToUpload();
+      }
+    } else {
+      let errMsg = "Sunucu hatası oluştu.";
+      try {
+        const errJson = JSON.parse(xhr.responseText);
+        if (errJson.error) errMsg = errJson.error;
+      } catch (e) {
+        errMsg = `Hata (${xhr.status}): ${xhr.statusText}`;
+      }
+      alert("⚠️ " + errMsg);
+      resetToUpload();
+    }
+  };
+
+  xhr.onerror = () => {
+    alert("⚠️ Sunucuya bağlanırken ağ hatası oluştu. Lütfen bağlantınızı kontrol edin.");
     resetToUpload();
-  }
+  };
+
+  xhr.send(formData);
 }
 
 function showLoading(status, substatus) {
@@ -152,6 +198,8 @@ function resetToUpload() {
   reportSection.classList.add("hidden");
   fileInput.value = "";
   currentReportData = null;
+  const progressContainer = document.getElementById("upload-progress-container");
+  if (progressContainer) progressContainer.classList.add("hidden");
   clearChatStream();
   qaInput.value = "";
 }
