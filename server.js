@@ -27,13 +27,14 @@ if (!customApiKey && fs.existsSync(ENV_FILE_PATH)) {
   }
 }
 
-// Configure multer for memory storage
+// Configure multer for memory storage (supports up to 500MB large tender packages)
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB max
+  limits: { fileSize: 500 * 1024 * 1024 }, // 500MB max
 });
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 // In-memory session store for current document
