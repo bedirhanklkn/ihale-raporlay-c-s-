@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>İhale Raporlayıcı | Hızlı Şartname ve İhale Analiz Ajanı</title>
+  <meta name="description" content="EKAP'tan indirilen ZIP, PDF veya Word ihale dokümanlarını anında tarayıp yönetici özeti, yeterlilik kriterleri ve şartname çelişkilerini çıkaran yapay zeka analiz aracı.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <!-- Top Navigation -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <span class="brand-icon">⚡</span>
+        <div>
+          <h1 class="brand-title">İhale Raporlayıcı</h1>
+          <p class="brand-subtitle">Hızlı Şartname & Doküman Analiz Ajanı</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-api-key" class="btn btn-ghost btn-sm" title="Gemini API Anahtarı Ayarla">
+          ⚙️ API Ayarları
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+    <!-- API Key Warning Banner -->
+    <div id="api-warning-banner" class="api-warning-banner hidden">
+      <span>⚠️ Gemini API anahtarı henüz girilmedi. Tam yapay zeka analizi için lütfen <button id="btn-open-api-from-banner" class="btn-link">API Ayarları</button>'na tıklayıp anahtarınızı girin.</span>
+    </div>
+
+    <!-- Upload Section -->
+    <section id="upload-section" class="upload-section animate-fade-in">
+      <div class="hero-text">
+        <h2>İhale Dokümanını Yükle, Önemli Yerleri Anında Gör</h2>
+        <p>EKAP'tan indirdiğin <strong>ZIP</strong>, <strong>PDF</strong> veya <strong>Word (.doc, .docx)</strong> dosyasını bırak; yapay zeka yeterlilik kriterlerini, teminatları ve şartname çelişkilerini saniyeler içinde özetlesin.</p>
+      </div>
+
+      <div id="drop-zone" class="drop-zone">
+        <input type="file" id="file-input" accept=".zip,.pdf,.doc,.docx,.txt" class="file-input-hidden">
+        <div class="drop-zone-icon">📁</div>
+        <h3>İhale Dosyasını Buraya Sürükle & Bırak</h3>
+        <p>veya bilgisayarından seçmek için tıkla</p>
+        <div class="supported-formats">
+          <span class="format-badge">.ZIP (EKAP Paketi)</span>
+          <span class="format-badge">.DOC / .DOCX (İdari Şartname)</span>
+          <span class="format-badge">.PDF (Teknik Şartname)</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Loading State -->
+    <div id="loading-state" class="loading-state hidden">
+      <div class="loader-spinner"></div>
+      <h3 id="loader-status">İhale Dokümanı Taranıyor...</h3>
+      <p id="loader-substatus">İdari şartname maddeleri, teminatlar ve yeterlilik kriterleri ayıklanıyor.</p>
+    </div>
+
+    <!-- Report Section (Initially Hidden) -->
+    <section id="report-section" class="report-section hidden">
+      <!-- Action Toolbar -->
+      <div class="report-toolbar no-print">
+        <div class="toolbar-left">
+          <button id="btn-new-upload" class="btn btn-secondary btn-sm">
+            ← Yeni Dosya Yükle
+          </button>
+          <span id="active-filename" class="active-file-label"></span>
+        </div>
+        <div class="toolbar-right">
+          <button id="btn-copy-markdown" class="btn btn-secondary btn-sm">
+            📋 Raporu Kopyala
+          </button>
+          <button id="btn-print-report" class="btn btn-primary btn-sm">
+            🖨️ PDF / Yazdır
+          </button>
+        </div>
+      </div>
+
+      <!-- Printable Executive Report Container -->
+      <article id="report-content" class="report-article">
+        <!-- Rendered dynamically via app.js -->
+      </article>
+
+      <!-- Document Q&A Assistant Section (Conversational AI Chat) -->
+      <section class="qa-section no-print">
+        <div class="qa-header">
+          <div class="qa-header-left">
+            <span class="qa-avatar">⚖️</span>
+            <div>
+              <h3>Kıdemli İhale Danışmanı & Yapay Zeka Asistanı</h3>
+              <p>Yüklenen şartname, sözleşme maddeleri, cezalar, mevzuat ve teklif stratejisi hakkında aklınıza takılan her şeyi sorun.</p>
+            </div>
+          </div>
+          <button id="btn-clear-chat" class="btn btn-ghost btn-sm" title="Sohbet geçmişini temizle">
+            🧹 Temizle
+          </button>
+        </div>
+
+        <!-- Quick Question Chips -->
+        <div class="quick-questions-wrapper">
+          <span class="quick-title">Hızlı Sorular:</span>
+          <div class="quick-chips">
+            <button class="chip-btn" data-q="Bu ihalede istekliyi batırabilecek veya zora sokabilecek cezai maddeler ve gizli riskler nelerdir?">⚠️ Cezalar ve Tuzaklar Neler?</button>
+            <button class="chip-btn" data-q="Teklif vermeden önce hazırlamam gereken zorunlu belgeler ve kontrol listesi nedir?">📋 Gerekli Evrak Listesi</button>
+            <button class="chip-btn" data-q="Fiyat farkı verilecek mi? Mazot ve asgari ücret artış riski kime ait?">💰 Mazot ve Fiyat Farkı Kime Ait?</button>
+            <button class="chip-btn" data-q="Kendi malım olmayan araç veya iş makinesiyle kiralık olarak ihaleye katılabilir miyim? Alt yüklenici kuralı nedir?">🚜 Kiralık Araç / Taşeron İzni</button>
+            <button class="chip-btn" data-q="Aşırı düşük teklif sınır değer (R katsayısı) uygulaması var mı? Sınır değerin altında kalırsam ne savunması istenir?">⚖️ Aşırı Düşük Teklif ve Savunma</button>
+            <button class="chip-btn" data-q="İşin süresi, işe başlama takvimi ve gecikme halinde kesilecek günlük ceza oranı nedir?">⏱️ İş Süresi ve Günlük Ceza Oranı</button>
+          </div>
+        </div>
+
+        <!-- Chat Stream -->
+        <div id="qa-chat-stream" class="chat-stream">
+          <!-- Initial AI greeting bubble -->
+          <div class="chat-msg msg-ai">
+            <div class="msg-avatar">🤖</div>
+            <div class="msg-content">
+              <div class="msg-sender">İhale Danışmanı AI</div>
+              <div class="msg-text">
+                Merhaba! Yüklediğiniz ihale şartnamesini ve sözleşme tasarısını 4734 sayılı Kamu İhale Mevzuatı çerçevesinde ayrıntılı olarak inceledim.
+                <br><br>
+                Merak ettiğiniz <strong>cezai şartlar, birim fiyat cetveli, gerekli belgeler, aşırı düşük savunması, yakıt/fiyat farkı</strong> veya herhangi bir özel madde hakkında yukarıdaki hızlı sorulardan birine tıklayabilir ya da sorunuzu serbestçe yazabilirsiniz.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing Indicator -->
+        <div id="qa-typing" class="qa-typing hidden">
+          <div class="typing-indicator">
+            <span></span><span></span><span></span>
+          </div>
+          <span class="typing-label">Şartname taranıyor ve uzman yanıtı hazırlanıyor...</span>
+        </div>
+
+        <!-- Chat Input Form -->
+        <div class="qa-input-box">
+          <input type="text" id="qa-input" placeholder="İhale veya şartname hakkında bir soru sorun (örn: 'Teminat süresi ne zaman bitiyor?')..." class="qa-input-field">
+          <button id="btn-qa-submit" class="btn btn-primary">
+            <span>Gönder</span> ➤
+          </button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <!-- API Key Modal -->
+  <div id="api-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Google Gemini API Ayarı</h3>
+        <button id="btn-close-modal" class="btn-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>İhale dokümanlarını yapay zeka ile derinlemesine analiz etmek için Google Gemini API anahtarınızı girin. Anahtar yalnızca bu oturumda kullanılır.</p>
+        <div class="form-group">
+          <label for="input-api-key">Gemini API Anahtarı</label>
+          <input type="password" id="input-api-key" class="form-control" placeholder="AIzaSy...">
+        </div>
+        <div id="api-status-indicator" class="api-status-indicator"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-save-key" class="btn btn-primary">Kaydet ve Aktifleştir</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="app-footer no-print">
+    <p>İhale Raporlayıcı • 4734 Sayılı Kamu İhale Kanunu ve EKAP Standartlarına Uygun Analiz Motoru</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
